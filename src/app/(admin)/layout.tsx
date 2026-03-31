@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [authenticated, setAuthenticated] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
@@ -35,6 +36,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     router.push('/login')
   }
 
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/sync-operadores', { method: 'POST' })
+      const data = await res.json()
+      alert(data.message || 'Sync completado')
+    } catch {
+      alert('Error al sincronizar')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -51,12 +65,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
             <h1 className="text-lg font-semibold text-gray-900">Taimingo</h1>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              Cerrar sesión
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleSync}
+                disabled={syncing}
+                className="text-xs text-gray-400 hover:text-teal-600 transition-colors disabled:opacity-50 flex items-center gap-1"
+                title="Sincronizar operadores desde Monday"
+              >
+                <svg className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {syncing ? 'Sincronizando...' : 'Sync operadores'}
+              </button>
+              <button
+                onClick={handleLogout}
+                className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Cerrar sesión
+              </button>
+            </div>
           </div>
           <nav className="flex gap-6 -mb-px">
             {tabs.map(tab => {

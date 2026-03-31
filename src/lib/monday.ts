@@ -42,9 +42,11 @@ export const CAJA_CHICA_COLUMNS = {
   situacion_monto: 'estado_mkmx3jqw',
 }
 
-// Column IDs for PLANTILLA DE OPERADORES board
+// Column IDs for PLANTILLA DE OPERADORES board (7777838006)
+// Note: `name` field is the SUCURSAL, not the operator name
 export const PLANTILLA_COLUMNS = {
   id: 'texto__1',
+  nombre_completo: 'nombre_completo__1',
   fecha_alta: 'fecha_1__1',
   fecha_baja: 'fecha__1',
   estado: 'estado__1',
@@ -351,4 +353,115 @@ export async function updateMondayItem(mondayItemId: string, fields: Partial<Sol
 // Backwards compatible alias
 export async function updateMondayItemStatus(mondayItemId: string, estatus: string) {
   return updateMondayItem(mondayItemId, { estatus })
+}
+
+// ========== PLANTILLA SYNC ==========
+
+export interface MondayOperador {
+  monday_item_id: string
+  id: string // operador ID (texto__1)
+  nombre_completo: string
+  sucursal: string
+  fecha_alta: string | null
+  fecha_baja: string | null
+  estado: string
+  imss: string
+  proyecto: string
+  ciudad: string
+}
+
+// Fetch all operadores from Monday PLANTILLA board (paginated)
+export async function fetchAllOperadoresFromMonday(): Promise<MondayOperador[]> {
+  const boardId = process.env.MONDAY_BOARD_PLANTILLA
+  if (!boardId || !process.env.MONDAY_API_KEY) return []
+
+  const columnIds = [
+    PLANTILLA_COLUMNS.id,
+    PLANTILLA_COLUMNS.nombre_completo,
+    PLANTILLA_COLUMNS.fecha_alta,
+    PLANTILLA_COLUMNS.fecha_baja,
+    PLANTILLA_COLUMNS.estado,
+    PLANTILLA_COLUMNS.imss,
+    PLANTILLA_COLUMNS.proyecto,
+    PLANTILLA_COLUMNS.ciudad,
+  ]
+
+  const allItems: MondayOperador[] = []
+  let cursor: string | null = null
+
+  // First page
+  const firstQuery = `query ($boardId: [ID!]!, $columnIds: [String!]) {
+    boards(ids: $boardId) {
+      items_page(limit: 500) {
+        cursor
+        items {
+          id
+          name
+          column_values(ids: $columnIds) { id text }
+        }
+      }
+    }
+  }`
+
+  const nextQuery = `query ($cursor: String!, $columnIds: [String!]) {
+    next_items_page(limit: 500, cursor: $cursor) {
+      cursor
+      items {
+        id
+        name
+        column_values(ids: $columnIds) { id text }
+      }
+    }
+  }`
+
+  try {
+    // First page
+    const firstResult = await mondayQuery(firstQuery, { boardId: [boardId], columnIds })
+    const firstPage = firstResult.data?.boards?.[0]?.items_page
+    if (!firstPage) return []
+
+    allItems.push(...parseOperadorItems(firstPage.items || []))
+    cursor = firstPage.cursor
+
+    // Subsequent pages
+    while (cursor) {
+      const nextResult = await mondayQuery(nextQuery, { cursor, columnIds })
+      const nextPage = nextResult.data?.next_items_page
+      if (!nextPage || !nextPage.items?.length) break
+
+      allItems.push(...parseOperadorItems(nextPage.items))
+      cursor = nextPage.cursor
+    }
+  } catch (e) {
+    console.error('Monday fetch operadores error:', e)
+  }
+
+  return allItems
+}
+
+function parseOperadorItems(items: MondayRawItem[]): MondayOperador[] {
+  return items.map(item => {
+    const cols: Record<string, string> = {}
+    for (const col of item.column_values) {
+      cols[col.id] = col.text || ''
+    }
+
+    // In this board, `item.name` is the SUCURSAL, not the operator name
+    // The actual name is in the `nombre_completo__1` column
+    const nombreCompleto = cols[PLANTILLA_COLUMNS.nombre_completo] || item.name
+    const sucursal = item.name // The item name is actually the sucursal
+
+    return {
+      monday_item_id: item.id,
+      id: cols[PLANTILLA_COLUMNS.id] || '',
+      nombre_completo: nombreCompleto,
+      sucursal,
+      fecha_alta: cols[PLANTILLA_COLUMNS.fecha_alta] || null,
+      fecha_baja: cols[PLANTILLA_COLUMNS.fecha_baja] || null,
+      estado: cols[PLANTILLA_COLUMNS.estado] || '',
+      imss: cols[PLANTILLA_COLUMNS.imss] || '',
+      proyecto: cols[PLANTILLA_COLUMNS.proyecto] || '',
+      ciudad: cols[PLANTILLA_COLUMNS.ciudad] || '',
+    }
+  })
 }
